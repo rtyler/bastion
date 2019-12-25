@@ -15,7 +15,6 @@ use futures::stream::FuturesOrdered;
 use futures::{pending, poll};
 use fxhash::FxHashMap;
 use lightproc::prelude::*;
-use log::Level;
 use std::cmp::{Eq, PartialEq};
 use std::ops::RangeFrom;
 use std::sync::Arc;
@@ -172,31 +171,16 @@ impl Supervisor {
         ProcStack::default()
     }
 
-    pub(crate) async fn reset(&mut self, bcast: Option<Broadcast>) {
-        if log_enabled!(Level::Debug) {
-            if let Some(bcast) = &bcast {
-                debug!(
-                    "Supervisor({}): Resetting to Supervisor({}).",
-                    self.id(),
-                    bcast.id()
-                );
-            } else {
-                debug!(
-                    "Supervisor({}): Resetting to Supervisor({}).",
-                    self.id(),
-                    self.id()
-                );
-            }
-        }
+    pub(crate) async fn reset(&mut self) {
+        debug!(
+            "Supervisor({}): Resetting.",
+            self.id(),
+        );
 
         // TODO: stop or kill?
         self.kill(0..).await;
 
-        if let Some(bcast) = bcast {
-            self.bcast = bcast;
-        } else {
-            self.bcast.clear_children();
-        }
+        self.bcast.clear_children();
 
         debug!(
             "Supervisor({}): Removing {} pre-start messages.",
@@ -671,7 +655,7 @@ impl Supervisor {
         self.kill(range.clone()).await;
 
         let supervisor_id = &self.id().clone();
-        let parent = Parent::supervisor(self.as_ref());
+
         let mut reset = FuturesOrdered::new();
         for id in self.order.drain(range) {
             let (killed, supervised) = if let Some(supervised) = self.stopped.remove(&id) {
@@ -687,21 +671,15 @@ impl Supervisor {
                 supervised.callbacks().before_restart();
             }
 
-            let bcast = Broadcast::new(
-                parent.clone(),
-                supervised.elem().clone().with_id(BastionId::new()),
-            );
-
             reset.push(async move {
                 debug!(
-                    "Supervisor({}): Resetting Supervised({}) (killed={}) to Supervised({}).",
+                    "Supervisor({}): Resetting Supervised({}) (killed={}).",
                     supervisor_id,
                     supervised.id(),
                     killed,
-                    bcast.id()
                 );
                 // FIXME: panics?
-                let supervised = supervised.reset(bcast).await.unwrap();
+                let supervised = supervised.reset().await.unwrap();
                 // FIXME: might not keep order
                 if killed {
                     supervised.callbacks().after_restart();
@@ -857,7 +835,7 @@ impl Supervisor {
                     bcast.id()
                 );
                 // FIXME: panics?
-                let supervised = supervised.reset(bcast).await.unwrap();
+                let supervised = supervised.reset().await.unwrap();
                 supervised.callbacks().after_restart();
 
                 self.bcast.register(supervised.bcast());
@@ -1489,24 +1467,23 @@ impl Supervised {
         ProcStack::default()
     }
 
-    fn reset(self, bcast: Broadcast) -> RecoverableHandle<Self> {
+    fn reset(self) -> RecoverableHandle<Self> {
         debug!(
-            "Supervised({}): Resetting to Supervised({}).",
+            "Supervised({}): Resetting.",
             self.id(),
-            bcast.id()
         );
         let stack = self.stack();
         match self {
             Supervised::Supervisor(mut supervisor) => pool::spawn(
                 async {
-                    supervisor.reset(Some(bcast)).await;
+                    supervisor.reset().await;
                     Supervised::Supervisor(supervisor)
                 },
                 stack,
             ),
             Supervised::Children(mut children) => pool::spawn(
                 async {
-                    children.reset(bcast).await;
+                    children.reset().await;
                     Supervised::Children(children)
                 },
                 stack,
