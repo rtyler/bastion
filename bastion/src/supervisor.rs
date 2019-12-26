@@ -172,10 +172,7 @@ impl Supervisor {
     }
 
     pub(crate) async fn reset(&mut self) {
-        debug!(
-            "Supervisor({}): Resetting.",
-            self.id(),
-        );
+        debug!("Supervisor({}): Resetting.", self.id(),);
 
         // TODO: stop or kill?
         self.kill(0..).await;
@@ -1468,10 +1465,7 @@ impl Supervised {
     }
 
     fn reset(self) -> RecoverableHandle<Self> {
-        debug!(
-            "Supervised({}): Resetting.",
-            self.id(),
-        );
+        debug!("Supervised({}): Resetting.", self.id(),);
         let stack = self.stack();
         match self {
             Supervised::Supervisor(mut supervisor) => pool::spawn(
